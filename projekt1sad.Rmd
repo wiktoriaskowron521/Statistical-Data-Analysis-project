@@ -1,0 +1,1071 @@
+---
+title: "Projekt 1. - Statystyczna analiza danych"
+author: "Wiktoria Skowron"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r message=TRUE, warning=TRUE, include=FALSE, paged.print=TRUE}
+library(pastecs)
+library(dplyr)
+library(corrplot)
+library(PerformanceAnalytics)
+library(pander)
+library(car)
+library(tidyverse)
+library(ggplot2)
+library(ggcorrplot)
+library(cluster)
+library(factoextra)
+library(gridExtra)
+library(dendextend)
+library(clusterSim)
+library(DT)
+library(graphics)
+library(rgl)
+library(shiny)
+library(tinytex)
+library(magrittr)
+library(dplyr)
+library(ggpubr)
+```
+
+**Cel pracy: Analiza podziału i klasyfikacji wybranych państw świata pod względem czynników związanych z energetyką, emisją CO2 oraz wielkością populacji i PKB.**
+
+Przemysł energetyczny jest jednym z najważnieszych przemysłów dla każdego państwa. Jego rozwój i zmiany bez zwątpienia świadczą o stopniu rozwoju gospodarczego. Celem wielkich gospodarek powinno być udoskonalanie przemysłu energetycznego, aby minimalizować emisję dwutklenku węgla. Celem analizy jest podział wybranych państw pod względem czynników energetycznych, emisji CO2 oraz PKB i wielkości populacji.
+
+Dane dotyczą produkcji oraz konsumpcji, a także emitowanego dwutlenku węgla przez wybrane państwa świata w roku 2019. Ze zbioru danych po wstępnej analizie zostały wykluczone wartości odstające, czyli państwa takie jak Chiny, Stany Zjednoczone, Arabia Saudyjska czy Rosja. Wartości te znacznie zawyżały statystyki, co mogło spowodować przyjęcie błędnych założeń oraz wysunięcie mylnych wniosków.
+
+```{r echo=FALSE}
+energy <- read.csv('/Users/Wiki/Desktop/SAD 1/energy_Data1.csv')
+row.names(energy)<-energy$Country
+energy<-subset(energy, select = -c(1))
+```
+
+```{r echo=FALSE}
+tabsetPanel(
+  tabPanel("Podgląd zbioru danych",
+    DT::datatable(
+      round(energy,2),
+      fillContainer = F),
+    style = "height:400px; overflow-y: scroll;"),
+  tabPanel("Podstawowe statystyki",
+    DT::datatable(
+      round(stat.desc(energy),2),
+      fillContainer = F),
+    style = "height:400px; overflow-y: scroll;"))
+```
+
+<br>
+
+**Zmienne w zbiorze danych:**\
+1. *Country*- nazwa danego kraju\
+2. *Energy_consumption* - całkowita ilość zużytej energii w roku 2019*\
+3. Energy_production -* całkowita ilość wyprodukowanej energii w roku 2019\
+4. *GDP* - Produkt Krajowy Brutto [PKB]\
+5. *Population* - liczebność mieszkańców danego kraju\
+6. *Energy_intensity_per_capita* - energochłonność, względem liczby osób\
+7. *Energy_intensity_by_GDP*- energochłonność, względem PKB\
+8. *CO2_emission* - ilość wyemitowanego dwutlenku węgla
+
+<br>
+
+**Statystyki dla badanych zmiennych:**
+
+Zbiór danych zawierający 30 obserwacji jest kompletny - brak zerowych lub pustych obserwacji.
+
+Na podstawie min, max, sumy, średniej i odchylenia standardowego widać, że zmienne *Energy_consumption* oraz *Energy_production* są do siebie znacznie zbliżone.
+
+W badanym zbiorze danych na rok 2019 średnie PKB analizowanych państw wynosi 930 miliardów dolarów, a jego wartość waha się pomiędzy 110 a 2992 miliardem dolarów. Dla porównania w 2020 roku PKB dla Polski wynosiło niecałe 600 miliardów dolarów.
+
+Średnia populacja analizowanych krajów wynosi ponad 57 mln obywateli, co przewyższa populację Polski z roku 2020 o prawie 20 mln (na rok 2020 - 37.95mln).
+
+Zmienne dotyczące energochłonności wskazują na ogromną rozbieżność. Suma dwutlenku węgla wydzielanych przez wszystkie analizowane kraje w 2019 wynosiła aż 6 miliardów ton. Cały świat w tym samym roku wydzielił ponad 35 miliardów, więc dane obejmują kraje odpowiedzialne za ok. 17% emisji dwutlenku węgla.
+
+```{r echo=FALSE}
+stats<-round(stat.desc(energy),3)
+```
+
+```{r include=FALSE}
+cv<-stats[c("mean","std.dev","coef.var"),1:7]
+```
+
+```{r echo=FALSE}
+tabsetPanel(
+  tabPanel("Podstawowe statystyki",
+    DT::datatable(
+      round(stat.desc(energy),2),
+      fillContainer = F),
+    style = "height:400px; overflow-y: scroll;"),
+)
+```
+
+<br>
+
+Statystyki świadczą o znacznym zróżnicowaniu zmiennych, a także o wysokim stopniu zmienności każdej z nich. Wartość współczynników zmienności dla zmiennych wskazuje, że najmniejszy z nich wynosi 57%. Zatem zmienne są odpowiednio zróżnicowane by przeprowadzać na nich dalsze badania.
+
+```{r echo=FALSE}
+cv<-stats[c("coef.var"),1:7]
+
+Datalong <- pivot_longer(cv, cols = 1:7, names_to = "name")
+ggplot(data = Datalong) + geom_col(aes(x = name, y = value),fill="darkblue", colour="black") + scale_x_discrete(labels=c("Konsumpcja energii", "Produkcja energii", "PKB", "Populacja", "Energochłonność per capita", "Energochłonność od PKB", "Emisja CO2")) + theme(axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + ggtitle("Współczynnik zmienności")+xlab(NULL)+ylab("Wartość współ. zmienności")
+```
+
+```{r warning=FALSE, include=FALSE}
+res <- cor(energy)
+res
+```
+
+<br>
+
+Poniżej przedstawiono macierz korelacji między badanymi zmiennymi. Większość par cechuje się umiarkowaną lub niską korelacją. Ciekawym spotrzeżeniem może być fakt, że ilość zużytej energii oraz emisji dwutlenku węgla są słabo skorelowane z ilością energii wytworzonej.
+
+```{r echo=FALSE, message=TRUE, warning=FALSE}
+ggcorrplot(res, hc.order = TRUE, type = "upper",
+     outline.col = "white",ggtheme = ggplot2::theme_gray,
+   colors = c("#6D9EC1", "white", "#E46726"),lab=TRUE)+ ggtitle("Macierz korelacji")+xlab(NULL)+ylab("Wartość współ. zmienności")+ theme(axis.text = element_text(size = 0.1))
+```
+
+<br>
+
+Na poniższych wykresach pudełkowych można zaobserwować, że średnia ilość energii wytworzonej oraz zużywanej są porównywalne. Jednak widać, że obserwacje dla zmiennej produkcji są nieco bardziej zróżnicowane.
+
+```{r echo=FALSE}
+boxplot(energy$Energy_consumption, energy$Energy_production,
+main = "Wykresy pudełkowe dla konsumpcji i produkcji energii",
+names = c("Konsumpcja", "Produkcja"),
+las = 0,
+col = c("orange","red"),
+border = "brown",
+horizontal = FALSE,
+notch = TRUE
+)
+```
+
+<br>
+
+1.  **Porządkowanie liniowe:**
+
+Wśród badanych zmiennych wyodrębniono nominanty, destymulanty, których pożądana wartość powinna być możliwie najniższa oraz stymulanty, których wartości powinny być jak najwyższe.
+
+Do pierwszej grupy zaliczono zmienne opisujące ilość energii wyprodukowanej i zużytej w danym kraju. Nie można jednoznacznie stwierdzić oczekiwań dotyczących ich wielkości. Wysoka konsumpcja energii może świadczyć zarówno o wysokim rozwoju gospodarczym kraju, ale również o nieefektywnym zarządzaniu zużyciem prądu. Niska produkcja energii mogłaby z jednej strony wskazywać na inwestycje w odnawialne źródła energii, a z drugiej klasyfikować państwo jako słabe pod względem rozwoju gospodarczego.
+
+W badanym zbiorze danych stymulantami bez zwątpienia są wartości populacji oraz produktu krajowego brutto. W większości przypadków, czyli w krajach bez zwiększonego ryzyka przeludnienia, oczekuje się, że populacja będzie coraz większa. Podobnie z wartością wskaźnika PKB.
+
+Jako destymulanty zaklasyfikowano zmienne powiązane z energochłonnością oraz emisją CO2 z racji, że mają istotny wpływ na stan środowiska.
+
+```{r include=FALSE}
+nominanta <- function(dane) {
+  tab<-table(round(dane,1))
+  tab_s<-names(sort(tab,decreasing=T))
+  n = tab_s[1]
+  n<-as.numeric(n)
+  n
+}
+```
+
+```{r echo=FALSE}
+df<-data.frame(
+  zmienna=colnames(energy),
+  typ=c("nominanta","nominanta","stymulanta","stymulanta","destymulanta","destymulanta","destymulanta"),
+  wartosc=c(nominanta(energy$Energy_consumption), nominanta(energy$Energy_production),"max","max","min","min","min")
+  )
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#dla Energy_consumption, Energy_production:
+
+stymulanta<-function(var){
+  n<-nominanta(var)
+  var=t(var)
+  for(i in 1:length(var)) {
+    z=round(var[i],1)
+    if(z==n) {
+      z=1
+    }
+    else if(z>n) {
+      z=1/(z-n+1)
+    }
+    else {
+      z=1/(z-n-1)
+    }
+    var[i]=z
+  }
+  round(t(var),3)
+}
+```
+
+```{r include=FALSE}
+Energy_consumption_s<-stymulanta(energy$Energy_consumption)
+
+Energy_production_s<-stymulanta(energy$Energy_production)
+```
+
+```{r include=FALSE}
+#max:
+stymulanta_max<-function(var){
+  var=t(var)
+  for(i in 1:length(var)){
+    var[i]=var[i]
+  }
+  t(var)
+}
+```
+
+```{r include=FALSE}
+#min:
+stymulanta_min<-function(var){
+  var=t(var)
+  for(i in 1:length(var)){
+    var[i]=-var[i]
+  }
+  t(var)
+}
+```
+
+```{r include=FALSE}
+#dla pozostalych zmiennych:
+#max
+GDP_s<-stymulanta_max(energy$GDP)
+Population_s<-stymulanta_max(energy$Population)
+#min
+Energy_intensity_per_capita_s<-stymulanta_min(energy$Energy_intensity_per_capita)
+Energy_intensity_by_GDP_s<-stymulanta_min(energy$Energy_intensity_by_GDP)
+CO2_emission_s<-stymulanta_min(energy$CO2_emission)
+```
+
+```{r echo=FALSE}
+energy_s<-data.frame(row.names=row.names(energy),Energy_consumption_s,Energy_production_s,GDP_s,Population_s,Energy_intensity_per_capita_s,Energy_intensity_by_GDP_s,CO2_emission_s)
+```
+
+Ustandaryzowany zbiór danych prezentuje się następująco:
+
+```{r echo=FALSE}
+energy_stand<-energy_s
+for(i in 1:ncol(energy_s)){
+  m<-mean(energy_s[,i])
+  sd<-sd(energy_s[,i])
+    for (j in 1:nrow(energy_s)){
+      energy_stand[j,i]<-(energy_s[j,i]-m)/sd
+    }
+}
+```
+
+```{r echo=FALSE}
+tabsetPanel(
+  tabPanel("Klasyfikacja rodzaju zmiennych",
+    DT::datatable(
+      df,
+      fillContainer = F),
+    style = "height:400px;"),
+  tabPanel("Ustandaryzowane zmienne",
+    DT::datatable(
+      round(energy_stand,2),
+      fillContainer = F),
+    style = "height:400px; overflow-y: scroll;")
+)
+```
+
+Zbiór ustandaryzowany w ten sposób można wykorzystać w porządkowaniu liniowym metodą Hellwiga oraz metodą standaryzowanych sum.
+
+**1.1 Metoda Hellwiga:**
+
+Na początku utworzono wzorzec, czyli obiekt posiadający wszystkie wartości pożądane. W tym celu dla każdej zmiennej wybrano najwyższą wartość, która po standaryzacji jest również najlepszą.
+
+```{r}
+wzorzec<-c(0)
+for(i in 1:ncol(energy_stand)){
+  wzorzec[i]<-max(energy_stand[,i])
+}
+```
+
+```{r echo=FALSE}
+wzorzec<-data.frame(zmienna=colnames(energy_stand),wzorzec)
+```
+
+Następnie obliczono kwadratową odległość każdej obserwacji od wzorca, a wyniki umieszczono w poniższej macierzy.
+
+```{r}
+odl_wzorzec<-energy_stand
+
+for(i in 1:ncol(energy_stand)){
+  for (j in 1:nrow(energy_stand)){
+    odl_wzorzec[j,i]<-(energy_stand[j,i]-t(wzorzec[i,2]))^2
+  }
+}
+```
+
+Dla każdego państwa (czyli każdej obserwacji) oddzielnie policzono sumę kwadratowych odległości od wzorca dla wszystkich zmiennych oraz pierwiastek tej sumy.
+
+```{r}
+odl_wzorzec.sum <-apply(odl_wzorzec,1,sum)
+
+odl_wzorzec.sum.sqrt<-sqrt(odl_wzorzec.sum)
+```
+
+```{r echo=FALSE}
+odl_wzorzec1 <-data.frame(row.names = row.names(energy_stand),odl_wzorzec.sum,odl_wzorzec.sum.sqrt)
+
+tabsetPanel(
+  tabPanel("Wzorzec",
+    DT::datatable(
+      wzorzec,
+      fillContainer = F),
+    style = "height:400px; "),
+  tabPanel("Odległości od wzorca",
+    DT::datatable(
+      round(odl_wzorzec,2),
+      fillContainer = F),
+    style = "height:400px; overflow-y: scroll;"),
+  tabPanel("Odległości od wzorca - sumy i ich kwadraty",
+    DT::datatable(
+      round(odl_wzorzec1,2),
+      fillContainer = F),
+    style = "height:400px;")
+)
+```
+
+Obliczenie odległości możliwie dalekiej:
+
+```{r}
+m<-mean(odl_wzorzec1$odl_wzorzec.sum.sqrt)
+sd<-sd(odl_wzorzec1$odl_wzorzec.sum.sqrt)
+d0=m+2*sd
+d0
+```
+
+Aby porównać który kraj ma pożądane parametry związane z energią , czyli jest najbardziej zbliżony do określonego wcześniej wzorca dla każdego państwa obliczono ocenę dopasowania do wzorca.
+
+```{r}
+ranking<-c(30)
+
+for(i in 1:nrow(odl_wzorzec1)){
+  ranking[i]<-(1-(odl_wzorzec1[i,2]/d0))
+}
+```
+
+```{r include=FALSE}
+ranking<-data.frame(row.names=row.names(energy_stand),score=ranking)
+```
+
+Najlepszy obiekt przyjmuje wartość największą, a najgorszy najmniejszą. Dlatego by w łatwy sposób ocenić obiekty ranking został posortowany.
+
+```{r echo=FALSE}
+ranking_sort<-ranking %>% arrange(desc(score))
+```
+
+```{r echo=FALSE}
+tabsetPanel(
+  tabPanel("Ranking przed sortowaniem",
+    DT::datatable(
+      round(ranking,2),
+      fillContainer = F),
+    style = "height:400px;"),
+  tabPanel("Ranking po sortowaniu",
+    DT::datatable(
+      round(ranking_sort,2),
+      fillContainer = F),
+    style = "height:400px;")
+)
+```
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+**Wnioski:** Z zaprezentowanego porządkowania linowego metodą Hellwiga można wyciągnąć bardzo ciekawe i dosyć niespodziewane wnioski.
+
+Według otrzymanego rankingu najlepszym energetycznie krajem jest Egipt. W czołówce są również takie państwa jak Włochy, Nigeria oraz Vietnam. Tak wysoka ocena tych obiektów może być zaburzona przez wskaźnik energochłonności per capita. Kraje te charakteryzują się dużym zaludnieniem, przez co mógł być istotnie zaniżony.
+
+Jako najgorsze z analizowanych krajów pod względem energetycznym ranking wskazuje Katar, Turkmenistan oraz Kuwejt.
+
+**1.2 Metoda Standaryzowanych sum:**
+
+```{r echo=FALSE}
+
+tabsetPanel(
+  tabPanel("Ustandaryzowany zbiór danych",
+    DT::datatable(
+      round(energy_stand,2),
+      fillContainer = F),
+    style = "height:400px; overflow-y: scroll;")
+)
+```
+
+Na początku zbudowano syntetyczną miarę po przez zsumowanie oszacowań uzyskanych w ramach obiektów.
+
+```{r}
+s=c(7)
+
+for(i in 1:ncol(energy_stand)){
+  s[i]=mean(energy_stand[,i])
+}
+```
+
+```{r echo=FALSE}
+s<-data.frame(zmienna=colnames(energy_stand),s)
+
+tabsetPanel(
+  tabPanel("Wartości syntetycznych miar",
+    DT::datatable(
+      s,
+      fillContainer = F),
+    style = "height:400px;")
+)
+```
+
+W używanej metodzie oceny w rankingu obliczane są przy zastosowaniu określonej wcześniej syntetycznej miary. A następnie są sortowane żeby ułatwić znalezienie najlepszych i najgorszych obiektów.
+
+```{r}
+rang.mean <-apply(energy_stand,1,mean)
+
+ranking<-(rang.mean - min(rang.mean)) / max(rang.mean - min(rang.mean))
+```
+
+```{r include=FALSE}
+ranking<-data.frame(row.names=row.names(energy),rang.mean,score=ranking)
+```
+
+```{r echo=FALSE}
+ranking_sort<-ranking %>% arrange(desc(score))
+```
+
+```{r echo=FALSE}
+tabsetPanel(
+  tabPanel("Ranking przed sortowaniem",
+    DT::datatable(
+      round(ranking,2),
+      fillContainer = F),
+    style = "height:400px;"),
+  tabPanel("Ranking po sortowaniu",
+    DT::datatable(
+      round(ranking_sort,2),
+      fillContainer = F),
+    style = "height:400px;")
+)
+```
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+**Wnioski:** Z zaprezentowanego porządkowania linowego metodą standaryzowanych sum można wyciągnąć bardzo podobne wnioski do tych z metody Hellwiga.
+
+Według otrzymanego rankingu najlepszym energetycznie krajem jest Nigiera. Czołówka najlepszych krajów jest podobna do tej uzyskanej za pomocą porządkowania liniowego metodą Hellwiga.
+
+Jako najgorsze z analizowanych krajów pod względem energetycznym ranking wskazuje (tak samo jak w metodzie Hellwiga) Katar, Turkmenistan oraz Kuwejt.
+
+**1.3 Metoda TOPSIS**
+
+```{r}
+standaryzacja_topsis<-function(df){
+  x=0
+  for(i in 1:ncol(df)){
+    for(j in 1:nrow(df)){
+      x=x+(df[j,i])^2
+    }
+  }
+  p=sqrt(x)
+  for(i in 1:ncol(df)){
+    for(j in 1:nrow(df)){
+      df[j,i]=df[j,i]/p
+    }
+  }
+  return(df)
+}
+```
+
+```{r echo=FALSE}
+energy_st<-standaryzacja_topsis(energy_s)
+
+tabsetPanel(
+  tabPanel("Zmienne przed standaryzacją (po zamianie na stymulanty)",
+    DT::datatable(
+      round(energy_s,2),
+      fillContainer = F),
+    style = "height:400px;overflow-y: scroll;"),
+  tabPanel("Zmienne po standaryzacji",
+    DT::datatable(
+      energy_st,
+      fillContainer = F),
+    style = "height:400px;overflow-y: scroll;")
+)
+```
+
+<br>
+
+Obliczanie wzorca i antywzorca polega na wyznaczeniu skrajnie największych i najmniejszych wartości dla każdej zmiennej. Wzorzec wskazuje na wartości największe, które po przeprowadzanej standaryzacji są pożądane. Antywzorzec to zbiór wartości, które są najmniej pożądane.
+
+```{r}
+wzorzec<-c(0)
+for(i in 1:ncol(energy_st)){
+  wzorzec[i]<-max(energy_st[,i])
+}
+
+antywzorzec<-c(0)
+for(i in 1:ncol(energy_st)){
+  antywzorzec[i]<-min(energy_st[,i])
+}
+```
+
+```{r echo=FALSE}
+wzorce<-data.frame(row.names=colnames(energy_st),wzorzec,antywzorzec)
+odl_wzorzec<-energy_st
+odl_antywzorzec<-energy_st
+```
+
+Odległości od wzorca i antywzorca
+
+```{r}
+for(i in 1:ncol(energy_st)){
+  for (j in 1:nrow(energy_st)){
+    odl_wzorzec[j,i]<-(energy_st[j,i]-t(wzorzec[i]))^2
+  }
+}
+
+for(i in 1:ncol(energy_st)){
+  for (j in 1:nrow(energy_st)){
+    odl_antywzorzec[j,i]<-(energy_st[j,i]-t(antywzorzec[i]))^2
+  }
+}
+```
+
+```{r include=FALSE}
+odl_wzorzec.sum <-apply(odl_wzorzec,1,sum)
+
+odl_wzorzec.sum.sqrt<-sqrt(odl_wzorzec.sum)
+
+odl_antywzorzec.sum <-apply(odl_antywzorzec,1,sum)
+
+odl_antywzorzec.sum.sqrt<-sqrt(odl_antywzorzec.sum)
+```
+
+```{r include=FALSE}
+odl_wzorzec1 <-data.frame(row.names = row.names(energy_st),odl_wzorzec.sum,odl_wzorzec.sum.sqrt)
+
+odl_antywzorzec1 <-data.frame(row.names = row.names(energy_st),odl_antywzorzec.sum,odl_antywzorzec.sum.sqrt)
+```
+
+```{r echo=FALSE}
+tabsetPanel(
+  tabPanel("wzorzec i antywzorzec",
+    DT::datatable(
+      wzorce,
+      fillContainer = F),
+    style = "height:400px; "),
+  tabPanel("Odległości od wzorca",
+    DT::datatable(
+      odl_wzorzec,
+      fillContainer = F),
+    style = "height:400px;overflow-y: scroll;"),
+  tabPanel("Odległości od antywzorca",
+    DT::datatable(
+      odl_antywzorzec,
+      fillContainer = F),
+    style = "height:400px;overflow-y: scroll;"),
+  tabPanel("Odległości od wzorca - sumy i ich kwadraty",
+    DT::datatable(
+      odl_wzorzec1,
+      fillContainer = F),
+    style = "height:400px;"),
+  tabPanel("Odległości od antywzorca - sumy i ich kwadraty",
+    DT::datatable(
+      odl_antywzorzec1,
+      fillContainer = F),
+    style = "height:400px;")
+)
+```
+
+<br>
+
+Obliczanie statystyki do przygotowania rankingu dla zbioru obserwacji:
+
+```{r}
+ranking<-c(30)
+for(i in 1:nrow(odl_wzorzec1)){
+  ranking[i]<-(odl_antywzorzec1[i,2]/(odl_antywzorzec1[i,2]+odl_wzorzec1[i,2]))
+}
+```
+
+<br>
+
+```{r echo=FALSE}
+ranking<-data.frame(row.names=row.names(energy_st),score=ranking)
+ranking_sort<-ranking %>% arrange(desc(score))
+
+tabsetPanel(
+  tabPanel("Ranking przed sortowaniem",
+    DT::datatable(
+      round(ranking,2),
+      fillContainer = F),
+    style = "height:400px;"),
+  tabPanel("Ranking po sortowaniu",
+    DT::datatable(
+      round(ranking_sort,2),
+      fillContainer = F),
+    style = "height:400px;")
+)
+```
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+**Wnioski:** Metoda TOPSIS zwraca bardzo podobne wyniki do pozostałych. Wyjątkiem jest Norwegia, która w tej metodzie porządkowania liniowego została oceniona jako jedno z gorszych państw pod względem energetycznym.
+
+<br>
+
+<br>
+
+2.  **Analiza skupień**
+
+Przed wykonaniem analizy skupień należy upewnić się, że dane są kompletne (nie ma pustych obserwacji) oraz dokonać standaryzacji zmiennych.
+
+```{r echo=FALSE}
+energy_stand <- scale(energy)
+tabsetPanel(
+  tabPanel("Ustandaryzowany zbiór zmiennych",
+    DT::datatable(
+      round(energy_stand,2),
+      fillContainer = F),
+    style = "height:400px;overflow-y: scroll;")
+)
+```
+
+<br>
+
+Do obliczenia odległości między każdą z par obserwacji zastosowano metodę odległości euklidesowej. Poniższa macierz niepodobieństw ilustruje, które kraje są do siebie podobne pod względem energetycznym. Najwyższe różnice zostały zaznaczone kolorem czerwonym. Kolor niebieski wskazuje na istotne podobieństwo obserwacji.
+
+Na podstawie przedstawionej macierzy ciężko jednoznacznie stwierdzić, czy więcej jest par obiektów do siebie podobnych czy różnych.
+
+```{r echo=FALSE}
+distance <- dist(energy_stand,method="euclidean") 
+
+fviz_dist(distance,gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+
+**2.1 Grupowanie podziałowe**
+
+W metodzie grupowania podziałowego należy zdefiniować liczbę skupień/klastrów tak żeby zminimalizować zmienność w danej grupie obiektów.
+
+Graficzną różnicę między podziałem obiektów na różne ilości klastrów można zaobserwować na poniższych wykresach.
+
+```{r echo=FALSE}
+podzial2 <- kmeans(energy_stand, centers = 2, nstart = 10)
+podzial3 <- kmeans(energy_stand, centers = 3, nstart = 10)
+podzial4 <- kmeans(energy_stand, centers = 4, nstart = 10)
+podzial5 <- kmeans(energy_stand, centers = 5, nstart = 10)
+
+# plots to compare
+plot1 <- fviz_cluster(podzial2, geom = "point", data = energy_stand) + ggtitle("k = 2")
+plot2 <- fviz_cluster(podzial3, geom = "point",  data = energy_stand) + ggtitle("k = 3")
+plot3 <- fviz_cluster(podzial4, geom = "point",  data = energy_stand) + ggtitle("k = 4")
+plot4 <- fviz_cluster(podzial5, geom = "point",  data = energy_stand) + ggtitle("k = 5")
+
+
+grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
+```
+
+<br>
+
+Warto zauważyć, że wraz z większeniem liczby grup, na które dzielimy obiekty są one do siebie coraz bardziej podobne w grupach. Celem kolejnych analiz jest wyznaczenie optymalnej ilości klastrów tak by połączyć ze sobą obiekty o podobnych cechach, ale również nie rozdzielać zbędnie obserwacji o nieistonych różnicach.
+
+**Metoda Łokcia** (*elbow method*)
+
+Według tej metody optymalną liczbą klastrów jest 3.
+
+```{r}
+set.seed(100)
+fviz_nbclust(energy_stand, kmeans, method = "wss")
+```
+
+**Metoda Profilu** *(Silhouette method)*
+
+Według tej metody optymalną liczbą klastrów jest 9.
+
+```{r}
+set.seed(100)
+fviz_nbclust(energy_stand, kmeans, method = "silhouette")
+```
+
+Wyznaczono optymalną liczbę klas jako średnią z metody łokcia i metody profilu. W dalszych rozważaniach obiekty zostaną podzielone na 6 grup.
+
+```{r include=FALSE}
+m<-c(9,3)
+m<-mean(m)
+round(m,0)
+```
+
+2.1.1 **Metoda k-średnich**
+
+```{r include=FALSE}
+set.seed(100)
+final <- kmeans(energy_stand, centers = 6, nstart = 10)
+```
+
+Podzial badanych państw na klastry prezentuje się następująco:
+
+Klaster 1: Algeria, Kolumbia, Uzbekistan, Szwecja, Peru, Rumunia
+
+Klaster 2: Turkmenistan, Wenezuela, Oman
+
+Klaster 3: Nigeria, Pakistan, Bangladesz
+
+Klaster 4: Katar, Norwegia, Kazachstan, Kuwejt
+
+Klaster 5: RPA, Malezja, Egipt, Argentyna, Tajlandia, Wietnam, Polska, Ukraina, Hiszpania, Holandia
+
+Klaster 6: Meksyk, Wielka Brytania, Turcja, Włochy
+
+```{r}
+fviz_cluster(final, data = energy_stand)
+```
+
+Podział w większości przypadków wydaje się sensowny i przewidalny, jednak niektóre połączenia mogą zastanawiać. Ciekawym przypadkiem wynikającym powyższego klastrowania jest zaklasyfikowanie Polski, Ukrainy, Hiszpani i Holandii do grupy z państwami afrykańskimi i azjatyckimi. Zastanawiający może być także fakt, że bardzo rozwinięta Szwecja jest w jednej grupie z państwami postrzeganymi jako wolnorozwijające się.
+
+Aby zbadać podział na klastry przedstawiono średnie wartości zmiennych w każdej z grup.
+
+```{r echo=FALSE}
+energy<-energy %>%
+  mutate(Cluster = final$cluster) %>%
+  group_by(Cluster) %>%
+  summarise_all("mean")
+
+tabsetPanel(
+  tabPanel("Średnia wartość w danym klastrze",
+    DT::datatable(
+      round(energy,2),
+      fillContainer = F),
+    style = "height:400px;overflow-y: scroll;")
+)
+```
+
+<br>
+
+**Wnioski:** Podział na klastry uzyskany za pomocą metody k-średnich w przypadku badanego zbioru danych dla większości obserwacji wydaje się być dobry i logiczny. Wcześniej opisane wyjątki dotyczące wątpliwych klasyfikacji prawdopodobnie są spowodowane główną wadą użytej metody, czyli faktem, że wymaga ona wstępnego określenia liczby klastrów.
+
+2.1.2 **Metoda k-medoid**
+
+```{r include=FALSE}
+set.seed(100)
+final <- pam(energy_stand, k=6)
+```
+
+Podzial badanych państw na klastry prezentuje się następująco:
+
+Klaster 1: Norwegia, Kuwejt, Katar, Oman, Turkmenistan
+
+Klaster 2: Kolumbia, Algieria, Kazachstan, Uzbekistan, Szwecja, Wenezuela
+
+Klaster 3: Bangladesz, Nigeria, Pakistan
+
+Klaster 4: Egipt, Wietnam, Tajlandia, Argentyna, Malezja, RPA, Polska, Ukraina, Holandia
+
+Klaster 5: Meksyk, Wielka Brytania, Turcja, Włochy, Hiszpania
+
+Klaster 6: Peru, Rumunia
+
+Podział na klastry wyznaczone metodą k-medoid różni się od podziału wyznaczonego metodą k-średniej. Polska, Ukraina i Holandia również w tej metodzie zostały zaklasyfikowane do grupy z państwami uznawanymi za słabo rozwijające się. Zaś Hiszpania, Włochy czy Wielka Brytania zostały połączone razem, co wydaje się lepszym rozwiązaniem. W przedstawionej metodzie zastanawiać może, dlaczego Norwegia i Szwecja według tej metody także zostały przydzielone do klastrów z państwami Bliskiego Wschodu.
+
+```{r}
+fviz_cluster(final, data = energy_stand)
+```
+
+**Wnioski:** Podział na klastry uzyskany za pomocą metody k-medoid w przypadku badanego zbioru danych jest porównywalnie dobry i ma podobne wady jak podział uzyskany metodą k-średnich. Błędy dotyczące wątpliwych klasyfikacji prawdopodobnie są spowodowane główną wadą użytej metody, czyli faktem, że wymaga ona wstępnego określenia liczby klastrów.
+
+Alternatywną metodą dla grupowania podziałowego może być metoda klasteryzacji hierarchicznej, ponieważ nie oczekuje podania konkretnej liczby klastrów.
+
+<br>
+
+<br>
+
+**2.2 Grupowanie hierarchiczne**
+
+Aby dokonać grupowania hierarchicznego należy najpierw wybrać odpowiednią metodę. Przy wyborze kierowano się *Agglomerative coefficient,* czyli współczynnikiem aglomeracyjnym. Wartość współczynnika uzyskano przy zastosowaniu funkcji *agnes*, która pozwala skonstruować hierarchię skupień, w której liczba skupień przyjmuje wartości od jednego do liczby obserwacji.
+
+```{r}
+m <- c( "average", "single", "complete", "ward")
+names(m) <- m
+
+ac <- function(x) {
+  agnes(energy_stand, method = x)$ac
+}
+
+map_dbl(m, ac)
+```
+
+Współczynnik aglomeracyjny osiąga największą wartość dla metody Warda, dlatego ta metoda zostanie zastosowana w dalszych analizach.
+
+Przed wyborem optymalnej liczby grup należy przeprowadzić analizę dendrogramu, analizę wykresu odległości wiązania względem etapów wiązania oraz analizę indeksów ocen jakości klasyfikacji.
+
+W powyższym dendrogramie każde państwo zostało przedstawione w postaci jednego "liścia" wykresu, a jego "gałęzie" łączą obserwacje w klastry. Na podstawie samego dendrogramu ciężko jednoznacznie stwierdzić, jaka liczba grup byłaby optymalna.
+
+```{r}
+hc <- agnes(energy_stand, method = "ward")
+pltree(hc, cex = 0.6, hang = -1, main = "Dendrogram")
+```
+
+Przedstawiona macierz odległości pozwala w nieco łatwiejszy sposób ocenić, jak kształtują się wartości danych obserwacji względem siebie. Macierz wskazuje na różnorodność obserwacji w grupie Turcja, Meksyk, Włochy, Wielka Brytania. Oman również wykazuje się wysokim niepodobieństwem względem większości państw.
+
+```{r echo=FALSE}
+distance <- dist(energy_stand,method="euclidean") 
+
+fviz_dist(distance,gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+
+Wyznaczanie liczby klastrów na podstawie dendrogramu czy macierzy niepodobieństwa jest dosyć subiektywne, dlatego do oceny doboru ilości grup zostaną wykorzystane indeksy ocen jakości klasyfikacji.
+
+Indeksami ocen jakości klasyfikacji są:
+
+-   index Calińskiego i Harabasza - *Index G1*
+
+-   index Bakera i Huberta - *Index G2*
+
+-   index Huberta i Levine'a - *Index G3*
+
+-   index Silhouette - *Index S*
+
+Dla indeksów G1, G2 oraz S wartość indeksu jest wprostproporcjonalna do wysokości jakości klasyfikacji. Dla indeksu G3 są to wartości odwrotnie proporcjonalne.
+
+```{r}
+min_k=2
+max_k=9
+
+resG1 <- resG2 <- resG3 <-resS <- array(0,c(max_k-min_k+1,2))
+resG1[,1] <- resG2[,1] <- resG3[,1]<- resS[,1] <- min_k:max_k
+
+#index G1
+clusters <- NULL
+for (nc in min_k:max_k){
+  cl <- pam(distance, nc, diss=TRUE)
+  resG1[nc-min_k+1,2] <- G1 <- index.G1(energy_stand,cl$cluster,centrotypes="centroids")
+  clusters <- rbind(clusters, cl$cluster)
+}
+
+#index G2
+clusters <- NULL
+for (nc in min_k:max_k){
+  cl <- pam(distance, nc, diss=TRUE)
+  resG2[nc-min_k+1,2] <- G2 <- index.G2(distance,cl$cluster)
+  clusters <- rbind(clusters,cl$cluster)
+  }
+
+#index G3 
+clusters <- NULL
+for (nc in min_k:max_k){
+  hc <- hclust(distance, method="complete")
+  cl <- cutree(hc, k=nc)
+  resG3[nc-min_k+1,2] <- G3 <- index.G3(distance,cl)
+  clusters <- rbind(clusters,cl)
+}
+
+#index S
+clusters <- NULL
+for (nc in min_k:max_k)
+{
+cl <- pam(distance, nc, diss=TRUE)
+resS[nc-min_k+1, 2] <- S <- index.S(distance,cl$cluster)
+clusters <- rbind(clusters, cl$cluster)
+}
+```
+
+Graficzną ilustrację wartości analizowanych indeksów dla podziałów na klastry od 2 do 9 przedstawiono poniżej.
+
+```{r echo=FALSE}
+res<-data.frame(k=resG1[,1],G1=resG1[,2], G2=resG2[,2],G3=resG3[,2], S=resS[,2])
+
+g1<-ggplot(data=res, aes(x = k, y = G1)) +
+  geom_line(colour="blue")+labs(x = "Liczba klastrów (k)",y="Index G1")
+
+g2<-ggplot(data=res, aes(x = k, y = G2)) +
+  geom_line(colour="red")+labs(x = "Liczba klastrów (k)",y="Index G2")
+
+g3<-ggplot(data=res, aes(x = k, y = G3)) +
+  geom_line(colour="green")+labs(x = "Liczba klastrów (k)",y="Index G3")
+
+s<-ggplot(data=res, aes(x = k, y = S)) +
+  geom_line(colour="orange")+labs(x = "Liczba klastrów (k)",y="Index S")
+
+grid.arrange(g1,g2,g3,s, ncol = 2)
+```
+
+Optymalne ilości klastrów wyznaczone na podstawie badanych indeksów częściowo różnią się od siebie. Po dokładnej analizie wykresów wartości indeksów, a także dendrogramu za liczbę klastrów używaną w dalszych analizach przyjęto 4. Decyzję podjęto na podstawie zauważeń, że dla liczby k=4 indeksy nadal przyjmują niemal pożądane wartości, co pokrywa się także ze średnią arytmetyczną ze wszystkich optymalnych k.
+
+```{r echo=FALSE}
+paste("max G1 for",(min_k:max_k)[which.max(resG1[,2])],"clusters =",max(resG1[,2]))
+paste("max G2 for",(min_k:max_k)[which.max(resG2[,2])],"clusters =",max(resG2[,2]))
+paste("min G3 for",(min_k:max_k)[which.min(resG3[,2])],"clusters =",min(resG3[,2]))
+paste("max S for",(min_k:max_k)[which.max(resS[,2])],"clusters =",max(resS[,2]))
+
+
+m<-c((min_k:max_k)[which.max(resG1[,2])],(min_k:max_k)[which.max(resG2[,2])],(min_k:max_k)[which.min(resG3[,2])],(min_k:max_k)[which.max(resS[,2])])
+
+cl<-round(mean(m),0)
+
+
+paste("optimal number of clusters:",cl)
+```
+
+```{r include=FALSE}
+hc <- hclust(distance, method = "ward.D2")
+
+sub_grp <- cutree(hc, k = 4)
+```
+
+```{r include=FALSE}
+energy<-data.frame(row.names=row.names(energy_stand),cluster = sub_grp)
+```
+
+Podzial badanych państw na klastry prezentuje się następująco:
+
+Klaster 1: Turkmenistan, Wenezuela, Oman, Katar, Norwegia, Kuwejt
+
+Klaster 2: Turcja, Włochy, Meksyk, Wielka Brytania
+
+Klaster 3: Nigeria, Pakistan, Bangladesz (jedyna grupa, która nie zmieniła się względem grupowania porządkowego)
+
+Klaster 4: Szwecja, Peru, Rumunia, Algeria, Kolumbia, Ukraina, Uzbekistan, Holandia, Malezja, Argentyna, Egipt, Wietnam, Hiszpania, Tajlandia, Polska, Kazachstan, RPA
+
+```{r}
+plot(hc, cex = 0.6)
+rect.hclust(hc, k = 4, border = 2:5)
+```
+
+Pomimo mniejszenia liczby klastrów grupy 1-3 w dużej mierze pokrywają się z analizowanymi w grupowaniu podziałowym. Największy klaster jest połączeniem pozostałych obserwacji, które algorytm zaklasyfikował jako wystarczająco podobne.
+
+```{r}
+fviz_cluster(list(data = energy_stand, cluster = sub_grp))
+```
+
+3.  **Skalowanie wielowymiarowe**
+
+Skalowanie wielowymiarowe ma na celu zredukowanie złożoności zbioru danych bazując na podobieństwie.
+
+Skalowanie dwuwymiarowe sprowadza się do zredukowania ilości zmiennych do dwóch oraz umieszczenia każdej z obserwacji na dwuwymiarowej skali.
+
+W przypadku analizowanego zbioru danych obserwacje rozkładają się w istotnie podobny sposób do rozkładu uzyskanego w metodzie grupowania hierarchicznego przeprowadzanego na potrzeby analizy skupień. Jednak uzyskany za pomocą funkcji cmdscale() rozkład jest odwrócony o 90 stopni.
+
+```{r warning=FALSE}
+#dwa wymiary
+mds <- energy_stand %>%
+  dist() %>%          
+  cmdscale() %>%
+  as_tibble()
+
+colnames(mds) <- c("Dim.1", "Dim.2")
+```
+
+```{r echo=FALSE}
+ggscatter(mds, x = "Dim.1", y = "Dim.2", 
+          label = rownames(energy_stand),
+          size = 0.3,
+          repel = TRUE)
+```
+
+Z tego powodu mogłoby wydawać się, że podział na klastry powinien również być identyczny. Poniższy wykres przedstawia obserwacje podzielone na klastry. Z zawartych informacji wynika, że klastrowanie przebiegło bardzo podobnie, ale jego rezultat nie jest taki sam jak w poprzednim przykładzie. Możliwe jest porównanie wyników otrzymanych przy skalowaniu dwumiarowym oraz grupowaniu z uwagi na fakt, że w obu częściach analizy obserwacje były dzielone na taką samą liczbę klastrów.
+
+```{r warning=FALSE}
+#klastrowanie
+clust <- kmeans(mds, 4)$cluster %>%
+  as.factor()
+
+mds <- mds %>%
+  mutate(groups = clust)
+```
+
+```{r echo=FALSE}
+ggscatter(mds, x = "Dim.1", y = "Dim.2", 
+          label = rownames(energy_stand),
+          color = "groups",
+          palette = "npg",
+          fill = "lightgray",
+          size = 1, 
+          ellipse = TRUE,
+          ellipse.type = "convex",
+          repel = TRUE)
+```
+
+Doszło do znacznego powiększenia grup zawierających Katar, Kuwejt czy Turkmenistan, czyli państw, które w porządkowaniu liniowym zostały zaklasyfikowane jako najgorsze z obserwacji. Najliczniejszy z klastrów uzyskanych za pomocą grupowania został podzielony. Klastry utworzone przy zastosowaniu skalowania dwuwymiarowego mają bardziej rozłożoną liczbę obserwacji.
+
+```{r}
+#trzy wymiary
+fit <- cmdscale(distance,eig=TRUE, k=3)
+```
+
+```{r echo=FALSE}
+df<-fit$points
+x <- df[,1]
+y <- df[,2]
+z <- df[,3]
+
+plot3d(x, y, z, xlab="Dim.1", ylab="Dim.2",zlab="Dim.3",main="Metric MDS", type="n")
+text3d(x, y,z, texts = row.names(df), cex=.7)
+rglwidget()
+```
+
+```{r message=FALSE, warning=FALSE}
+cl <- kmeans(df[,1:3],4)
+df$cluster <- as.factor(cl$cluster)
+```
+
+Klastry otrzymane w skalowaniu trójwymiarowym łączą ze sobą cechy skalowania dwuwymiarowego i grupowanie hierarchicznego.
+
+```{r echo=FALSE}
+plot3d(x, y, z, xlab="Dim.1", ylab="Dim.2",zlab="Dim.3",main="Metric MDS")
+text3d(x, y,z, texts = row.names(fit$points), cex=.7, col=df$cluster)
+rglwidget()
+```
+
+<br>
+
+<br>
+
+**Podsumowanie:** Badane dane zostały poddane porządkowaniu liniowemu, analizie skupień oraz skalowaniu wielowymiarowemu. Wnioski płynące z każdej z prezentowanych metod porządkowania liniowego (Hellwiga, standaryzowanych sum, TOPSIS) są bardzo podobne, a pojedyncze różnice wynikają prawdopodobnie ze specyfikacji danej metody i zaokrągleń wyników. Wszystkie metody wskazują, że najgorszymi obiektami pod względem energetycznym są Kuwejt, Turkmenistan, Katar i Kazachstan. W metodzie TOPSIS do tego grona klasyfikowano również Norwegię. Zastanawiające mogą być jednak wyniki określające najlepsze obiekty. Egipt, Wietnam czy Nigeria mimo wysokiej oceny wskaźnika rankingu nie są uznawane za potęgi energetyczne, a ich wysoki wynik prawdopodobnie został zawyżony przez wielkość populacji tych państw, która jest jedną ze zmiennych w badanym zbiorze danych.
+
+Analizę skupień podzielono na grupowanie podziałowe oraz hierarchiczne. W grupowaniu podziałowym wstępnie za pomocą metody łokcia i profilu przyjęto, że w metodzie k-średnich i k-medoid zbiór danych będzie dzielony na 6 klastrów. Obie metody dały porównywalne wyniki, wydzielone grupy w większości są bardzo podobne. Ze względu na fakt, że obiekty były zróżnicowane ciężko jednoznacznie ocenić jakość wydzielonych skupień obiektów. Z jednej strony podział niektórych grup wydaje się uzasadniona - dla przykładu połączenie Nigerii, Pakistanu i Bangladeszu jako państw słaborozwiniętych (co wpływa na energetyczną część zmiennych), o niskim PKB i dużej populacji. Z drugiej strony bardzo ciężko znaleźć powód, dla którego Norwegia czy Szwecja miałyby trafić do podobnej grupy. Prawdopodobnie na wyniki algorytmu wpłynęły wartości zmiennej opisującej ilości emitowanego dwutlenku węgla, które zarówno w państwach słaborozwiniętych jak i wysokorozwiniętych, które inwestują w odnawialne źródła energii, są jak niższe niż przeciętna. W grupowaniu hierarchicznym liczbę klastrów wyznaczono po analizie dendrogramu, macierzy niepodobieństwa, a przede wszystkim na podstawie indeksów ocen jakości klasyfikacji. Zbiór danych podzielono na 4 klastry, z czego jeden zawierał aż 17 obiektów. W największym z klastrów prawdopodobnie zostały zawarte wszelkie wątpliwe obiekty.
+
+Przedstawiono również skalowanie wielowymiarowe - zbiór danych przeskalowano dwu- oraz trójwymiarowo, a wyniki zaprezentowano na wykresach z zaznaczonym podziałem na klastry. Skalowanie miało na celu zredukowanie złożoności zbioru danych, aby mógł zostać umieszony na odpowiednich wykresach, a obiekty były możliwe do porównania. Dane podzielono na 4, a wyniki były niemal identyczne jak te uzyskane w metodzie grupowania hierarchicznego.
+
+Zastosowane elementy statystycznej analizy danych w dużym stopniu wskazują na podobny podział badanego zbioru danych. Wszelkie nieścisłości i wątpliwe klasyfikacje prawdopodobnie są spowodowane dużym zróżnicowaniem obiektów oraz różnorodnością badanych zmiennych.
+
+**Bibliografia:**
+
+[1] <https://cran.r-project.org/web/packages/clusterSim/clusterSim.pdf>
+
+[2] <http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/122-multidimensional-scaling-essentials-algorithms-and-r-code/#visualizing-a-correlation-matrix-using-multidimensional-scaling>
+
+[3] <https://mfiles.pl/pl/index.php/Skalowanie_wielowymiarowe>
+
+[4] <https://www.statsoft.pl/textbook/stathome_stat.html?https%3A%2F%2Fwww.statsoft.pl%2Ftextbook%2Fstmulsca.html>
+
+[5] <http://www.sthda.com/english/wiki/beautiful-dendrogram-visualizations-in-r-5-must-known-methods-unsupervised-machine-learning>
+
+[6] <https://www.rdocumentation.org/packages/linearOrdering/versions/1.0.1>
+
+[7] <https://www.statsoft.pl/textbook/stathome_stat.html?https%3A%2F%2Fwww.statsoft.pl%2Ftextbook%2Fstcluan.html>
+
+[8] <https://mfiles.pl/pl/index.php/Analiza_skupie%C5%84>
+
+[9] <https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/cmdscale>
+
+[10] <http://www.gastonsanchez.com/visually-enforced/how-to/2013/01/23/MDS-in-R/>
+
+[11] <https://www.r-statistics.com/2016/01/multidimensional-scaling-with-r-from-mastering-data-analysis-with-r/>
+
+[12] <https://www.r-bloggers.com/2017/12/how-to-perform-hierarchical-clustering-using-r/>
+
+[13] <https://stat.ethz.ch/R-manual/R-devel/library/stats/html/hclust.html>
+
+[14] wykłady i prezentacje z zajęć projektowych
